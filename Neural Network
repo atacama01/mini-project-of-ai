@@ -1,0 +1,331 @@
+# =======================
+# NEURAL NETWORK
+# =======================
+
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from torch.utils.data import DataLoader, TensorDataset
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+from sklearn.preprocessing import StandardScaler
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.model_selection import train_test_split
+import warnings
+
+warnings.filterwarnings('ignore')
+torch.manual_seed(42)
+np.random.seed(42)
+
+# Load ORIGINAL Data and Apply Feature Engineering
+df = pd.read_csv('/kaggle/input/insurance/insurance.csv')
+print(f"Original data loaded: {df.shape[0]} rows, {df.shape[1]} columns")
+
+# FEATURE ENGINEERING
+df['age_squared'] = df['age'] ** 2
+df['bmi_squared'] = df['bmi'] ** 2
+df['age_times_bmi'] = df['age'] * df['bmi'] / 100
+df['smoker_age'] = df['age'] * (df['smoker'] == 'yes').astype(int)
+df['smoker_bmi'] = df['bmi'] * (df['smoker'] == 'yes').astype(int)
+df['risk_score'] = df['age']/10 + df['bmi']/5 + df['children']*2
+df['is_obese'] = (df['bmi'] >= 30).astype(int)
+df['is_overweight'] = ((df['bmi'] >= 25) & (df['bmi'] < 30)).astype(int)
+df['age_group'] = pd.cut(df['age'], 
+                        bins=[18, 30, 40, 50, 60, 65],
+                        labels=['18-29', '30-39', '40-49', '50-59', '60+'])
+df['children_age'] = df['children'] * df['age'] / 10
+
+print(f"Total features after engineering: {df.shape[1] - 1} (excluding charges)")
+
+# Split into X and y
+X = df.drop(columns=['charges'])
+y = df['charges']
+print(f"X shape: {X.shape}, y shape: {y.shape}")
+
+# Train/Validation/Test Split (60/20/20)
+X_train, X_temp, y_train, y_temp = train_test_split(
+    X, y, test_size=0.4, random_state=42
+)
+
+X_val, X_test, y_val, y_test = train_test_split(
+    X_temp, y_temp, test_size=0.5, random_state=42
+)
+
+print(f"\nTraining: {X_train.shape[0]} samples")
+print(f"Validation: {X_val.shape[0]} samples")
+print(f"Test: {X_test.shape[0]} samples")
+
+# Preprocessing with NEW features
+numerical_cols = ['age', 'bmi', 'children', 'age_squared', 'bmi_squared', 
+                  'age_times_bmi', 'smoker_age', 'smoker_bmi', 'risk_score',
+                  'is_obese', 'is_overweight', 'children_age']
+categorical_cols = ['sex', 'smoker', 'region', 'age_group']
+
+preprocessor = ColumnTransformer([
+    ('num', StandardScaler(), numerical_cols),
+    ('cat', OneHotEncoder(drop='first', sparse_output=False), categorical_cols)
+])
+
+X_train_processed = preprocessor.fit_transform(X_train)
+X_val_processed = preprocessor.transform(X_val)
+X_test_processed = preprocessor.transform(X_test)
+
+cat_encoder = preprocessor.named_transformers_['cat']
+cat_feature_names = cat_encoder.get_feature_names_out(categorical_cols)
+all_feature_names = list(numerical_cols) + list(cat_feature_names)
+
+print(f"\nOriginal X_train shape: {X_train.shape}")
+print(f"Processed X_train shape: {X_train_processed.shape}")
+print(f"Total features after preprocessing: {len(all_feature_names)}")
+
+# SCALE THE TARGET VARIABLE
+y_scaler = StandardScaler()
+y_train_scaled = y_scaler.fit_transform(y_train.values.reshape(-1, 1)).flatten()
+y_val_scaled = y_scaler.transform(y_val.values.reshape(-1, 1)).flatten()
+y_test_scaled = y_scaler.transform(y_test.values.reshape(-1, 1)).flatten()
+
+print(f"\nOriginal y range: ${y_train.min():,.2f} to ${y_train.max():,.2f}")
+print(f"Scaled y range: {y_train_scaled.min():.3f} to {y_train_scaled.max():.3f}")
+
+# Convert to PyTorch Tensors
+X_train_tensor = torch.FloatTensor(X_train_processed)
+y_train_tensor = torch.FloatTensor(y_train_scaled).reshape(-1, 1)
+X_val_tensor = torch.FloatTensor(X_val_processed)
+y_val_tensor = torch.FloatTensor(y_val_scaled).reshape(-1, 1)
+X_test_tensor = torch.FloatTensor(X_test_processed)
+y_test_tensor = torch.FloatTensor(y_test_scaled).reshape(-1, 1)
+
+print(f"\nInput size: {X_train_tensor.shape[1]} features")
+print(f"Training samples: {X_train_tensor.shape[0]}")
+
+# Create DataLoader
+batch_size = 32
+train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
+test_dataset = TensorDataset(X_test_tensor, y_test_tensor)
+
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
+
+# NEURAL NETWORK ARCHITECTURE
+class EnhancedInsuranceNet(nn.Module):
+    def __init__(self, input_size):
+        super(EnhancedInsuranceNet, self).__init__()
+        self.layer1 = nn.Linear(input_size, 64)
+        self.bn1 = nn.BatchNorm1d(64)
+        self.drop1 = nn.Dropout(0.3)
+        self.layer2 = nn.Linear(64, 32)
+        self.bn2 = nn.BatchNorm1d(32)
+        self.drop2 = nn.Dropout(0.2)
+        self.layer3 = nn.Linear(32, 16)
+        self.bn3 = nn.BatchNorm1d(16)
+        self.output = nn.Linear(16, 1)
+        self._initialize_weights()
+    
+    def _initialize_weights(self):
+        for layer in [self.layer1, self.layer2, self.layer3, self.output]:
+            if isinstance(layer, nn.Linear):
+                nn.init.kaiming_normal_(layer.weight, nonlinearity='relu')
+                if layer.bias is not None:
+                    nn.init.zeros_(layer.bias)
+    
+    def forward(self, x):
+        out = self.layer1(x)
+        out = self.bn1(out)
+        out = torch.relu(out)
+        out = self.drop1(out)
+        out = self.layer2(out)
+        out = self.bn2(out)
+        out = torch.relu(out)
+        out = self.drop2(out)
+        out = self.layer3(out)
+        out = self.bn3(out)
+        out = torch.relu(out)
+        out = self.output(out)
+        return out
+
+input_size = X_train_tensor.shape[1]
+model = EnhancedInsuranceNet(input_size)
+print(f"\nTotal parameters: {sum(p.numel() for p in model.parameters()):,}")
+
+# TRAINING SETUP
+criterion = nn.HuberLoss(delta=1.0)
+optimizer = optim.AdamW(model.parameters(), lr=0.0003, weight_decay=1e-3)
+scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer, mode='min', factor=0.5, patience=10, min_lr=1e-6, verbose=False
+)
+
+# TRAINING FUNCTIONS
+def train_epoch_enhanced(model, loader, criterion, optimizer):
+    model.train()
+    total_loss = 0
+    for batch_x, batch_y in loader:
+        optimizer.zero_grad()
+        predictions = model(batch_x)
+        loss = criterion(predictions, batch_y)
+        loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+        optimizer.step()
+        total_loss += loss.item()
+    return total_loss / len(loader)
+
+def validate_enhanced(model, loader, criterion):
+    model.eval()
+    total_loss = 0
+    all_predictions = []
+    all_targets = []
+    with torch.no_grad():
+        for batch_x, batch_y in loader:
+            predictions = model(batch_x)
+            loss = criterion(predictions, batch_y)
+            total_loss += loss.item()
+            all_predictions.extend(predictions.cpu().numpy())
+            all_targets.extend(batch_y.cpu().numpy())
+    return total_loss / len(loader), np.array(all_predictions), np.array(all_targets)
+
+# TRAINING LOOP
+num_epochs = 200
+patience = 30
+best_val_loss = float('inf')
+patience_counter = 0
+train_losses = []
+val_losses = []
+
+print(f"\nTraining for {num_epochs} epochs (patience={patience})...")
+
+for epoch in range(num_epochs):
+    train_loss = train_epoch_enhanced(model, train_loader, criterion, optimizer)
+    train_losses.append(train_loss)
+    
+    val_loss, val_preds_scaled, val_targets_scaled = validate_enhanced(model, val_loader, criterion)
+    val_losses.append(val_loss)
+    
+    scheduler.step(val_loss)
+    
+    if val_loss < best_val_loss:
+        best_val_loss = val_loss
+        patience_counter = 0
+        torch.save({
+            'epoch': epoch,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'val_loss': val_loss,
+            'y_scaler_mean': y_scaler.mean_,
+            'y_scaler_scale': y_scaler.scale_
+        }, 'enhanced_best_nn_model.pth')
+    else:
+        patience_counter += 1
+    
+    if (epoch + 1) % 20 == 0:
+        print(f"Epoch [{epoch+1:3d}/{num_epochs}] | Train Loss: {train_loss:.4f} | Val Loss: {val_loss:.4f}")
+    
+    if patience_counter >= patience:
+        print(f"\nEarly stopping triggered at epoch {epoch+1}")
+        break
+
+print(f"\nTraining completed! Best validation loss: {best_val_loss:.4f}")
+
+# EVALUATION
+def inverse_transform_predictions(model, loader, y_scaler):
+    model.eval()
+    all_preds_scaled = []
+    all_targets_scaled = []
+    with torch.no_grad():
+        for batch_x, batch_y in loader:
+            preds = model(batch_x)
+            all_preds_scaled.extend(preds.cpu().numpy())
+            all_targets_scaled.extend(batch_y.cpu().numpy())
+    
+    preds_scaled = np.array(all_preds_scaled).reshape(-1, 1)
+    targets_scaled = np.array(all_targets_scaled).reshape(-1, 1)
+    preds_original = y_scaler.inverse_transform(preds_scaled).flatten()
+    targets_original = y_scaler.inverse_transform(targets_scaled).flatten()
+    return preds_original, targets_original
+
+train_preds, train_targets = inverse_transform_predictions(model, train_loader, y_scaler)
+val_preds, val_targets = inverse_transform_predictions(model, val_loader, y_scaler)
+test_preds, test_targets = inverse_transform_predictions(model, test_loader, y_scaler)
+
+def calculate_all_metrics(predictions, targets):
+    mae = mean_absolute_error(targets, predictions)
+    rmse = np.sqrt(mean_squared_error(targets, predictions))
+    r2 = r2_score(targets, predictions)
+    mape = np.mean(np.abs((targets - predictions) / np.clip(targets, 1e-10, None))) * 100
+    return mae, rmse, r2, mape
+
+train_mae, train_rmse, train_r2, train_mape = calculate_all_metrics(train_preds, train_targets)
+val_mae, val_rmse, val_r2, val_mape = calculate_all_metrics(val_preds, val_targets)
+test_mae, test_rmse, test_r2, test_mape = calculate_all_metrics(test_preds, test_targets)
+
+print("\nPERFORMANCE METRICS:")
+print(f"{'Set':<15} {'MAE ($)':<12} {'RMSE ($)':<12} {'R² Score':<10}")
+print("-" * 50)
+print(f"{'Training':<15} {train_mae:,.2f}{'':<2} {train_rmse:,.2f}{'':<2} {train_r2:.4f}")
+print(f"{'Validation':<15} {val_mae:,.2f}{'':<2} {val_rmse:,.2f}{'':<2} {val_r2:.4f}")
+print(f"{'Test':<15} {test_mae:,.2f}{'':<2} {test_rmse:,.2f}{'':<2} {test_r2:.4f}")
+
+# VISUALIZATION
+fig, axes = plt.subplots(2, 3, figsize=(15, 10))
+
+# Training history
+axes[0, 0].plot(train_losses, label='Training Loss', linewidth=2, color='blue')
+axes[0, 0].plot(val_losses, label='Validation Loss', linewidth=2, color='red')
+axes[0, 0].set_xlabel('Epoch')
+axes[0, 0].set_ylabel('Loss (Huber)')
+axes[0, 0].set_title('Training History')
+axes[0, 0].legend()
+axes[0, 0].grid(True, alpha=0.3)
+
+# Training set predictions
+axes[0, 1].scatter(train_targets, train_preds, alpha=0.5, color='blue', s=10)
+max_val = max(train_targets.max(), train_preds.max())
+axes[0, 1].plot([0, max_val], [0, max_val], 'r--', linewidth=2)
+axes[0, 1].set_xlabel('Actual Charges ($)')
+axes[0, 1].set_ylabel('Predicted Charges ($)')
+axes[0, 1].set_title(f'Training Set\nR² = {train_r2:.4f}')
+axes[0, 1].grid(True, alpha=0.3)
+
+# Validation set predictions
+axes[0, 2].scatter(val_targets, val_preds, alpha=0.5, color='orange', s=10)
+max_val = max(val_targets.max(), val_preds.max())
+axes[0, 2].plot([0, max_val], [0, max_val], 'r--', linewidth=2)
+axes[0, 2].set_xlabel('Actual Charges ($)')
+axes[0, 2].set_ylabel('Predicted Charges ($)')
+axes[0, 2].set_title(f'Validation Set\nR² = {val_r2:.4f}')
+axes[0, 2].grid(True, alpha=0.3)
+
+# Test set predictions
+axes[1, 0].scatter(test_targets, test_preds, alpha=0.5, color='green', s=10)
+max_val = max(test_targets.max(), test_preds.max())
+axes[1, 0].plot([0, max_val], [0, max_val], 'r--', linewidth=2)
+axes[1, 0].set_xlabel('Actual Charges ($)')
+axes[1, 0].set_ylabel('Predicted Charges ($)')
+axes[1, 0].set_title(f'Test Set\nR² = {test_r2:.4f}')
+axes[1, 0].grid(True, alpha=0.3)
+
+# Performance summary
+summary_text = f"""FINAL PERFORMANCE
+Test Set:
+• R² Score: {test_r2:.4f}
+• MAE: ${test_mae:,.0f}
+• RMSE: ${test_rmse:,.0f}
+• MAPE: {test_mape:.1f}%"""
+
+axes[1, 1].text(0.5, 0.5, summary_text, 
+                ha='center', va='center', fontsize=12,
+                bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
+axes[1, 1].axis('off')
+axes[1, 1].set_title('Performance Summary')
+
+plt.tight_layout()
+plt.savefig('enhanced_nn_results.png', dpi=300, bbox_inches='tight')
+plt.show()
+
+print(f"\nFINAL PERFORMANCE (Test Set):")
+print(f"R² Score: {test_r2:.4f}")
+print(f"MAE: ${test_mae:,.2f}")
+print(f"RMSE: ${test_rmse:,.2f}")
