@@ -88,7 +88,7 @@ grid_search = GridSearchCV(
 )
 
 grid_search.fit(X_train, y_train_log)
-print(f"✅ Optimization completed")
+print(f"Optimization completed")
 print(f"Best parameters: {grid_search.best_params_}")
 
 # OPTIMIZED DECISION TREE (Trained on log-transformed target)
@@ -112,7 +112,7 @@ def print_metrics(y_true, y_pred, set_name):
     print(f"{set_name:12} MAE: ${mae:,.2f} | RMSE: ${rmse:,.2f} | R²: {r2:.4f}")
     return mae, rmse, r2
 
-print("\n📊 ENHANCED PERFORMANCE (with log transformation):")
+print("\n ENHANCED PERFORMANCE (with log transformation):")
 print("-" * 60)
 train_mae, train_rmse, train_r2 = print_metrics(y_train, y_train_pred, "Training")
 val_mae, val_rmse, val_r2 = print_metrics(y_val, y_val_pred, "Validation")
@@ -120,7 +120,7 @@ test_mae, test_rmse, test_r2 = print_metrics(y_test, y_test_pred, "Test")
 print("-" * 60)
 
 # BAGGING ENSEMBLE FOR FURTHER IMPROVEMENT
-print("\n🤝 Applying Bagging Ensemble for additional boost...")
+print("\n Applying Bagging Ensemble for additional boost...")
 bagging_dt = BaggingRegressor(
     estimator=DecisionTreeRegressor(
         max_depth=best_dt.max_depth if hasattr(best_dt, 'max_depth') else None,
@@ -151,12 +151,12 @@ if test_r2_bagging > test_r2:
     final_r2 = test_r2_bagging
     final_mae = test_mae_bagging
     final_pred = y_test_pred_bagging
-    print("✅ Using Bagging Ensemble (better performance)")
+    print(" Using Bagging Ensemble (better performance)")
 else:
     final_r2 = test_r2
     final_mae = test_mae
     final_pred = y_test_pred
-    print("✅ Using single Decision Tree (better performance)")
+    print(" Using single Decision Tree (better performance)")
 
 # FEATURE IMPORTANCE ANALYSIS
 importance_df = pd.DataFrame({
@@ -164,7 +164,7 @@ importance_df = pd.DataFrame({
     'Importance': best_dt.feature_importances_
 }).sort_values('Importance', ascending=False)
 
-print("\n🔝 TOP 10 MOST IMPORTANT FEATURES:")
+print("\n TOP 10 MOST IMPORTANT FEATURES:")
 print("-" * 45)
 for i, row in importance_df.head(10).iterrows():
     print(f"{row['Feature']:30} {row['Importance']:.4f}")
@@ -191,14 +191,14 @@ plt.show()
 cv_scores = cross_val_score(best_dt, X_train, y_train_log, 
                            cv=5, scoring='r2', n_jobs=-1)
 
-print(f"\n📊 5-FOLD CROSS-VALIDATION:")
+print(f"\n 5-FOLD CROSS-VALIDATION:")
 print(f"Scores: {cv_scores.round(4)}")
 print(f"Mean CV R²: {cv_scores.mean():.4f}")
 print(f"Std Deviation: {cv_scores.std():.4f}")
 
 # FINAL EVALUATION
 print("\n" + "=" * 60)
-print("🎯 FINAL MODEL EVALUATION")
+print(" FINAL MODEL EVALUATION")
 print("=" * 60)
 
 print(f"Test Set R² Score: {final_r2:.4f}")
@@ -206,4 +206,3 @@ print(f"Test Set MAE: ${final_mae:,.2f}")
 
 # Save the model
 joblib.dump(best_dt, 'enhanced_decision_tree_model.pkl')
-print("\n💾 Model saved as 'enhanced_decision_tree_model.pkl'")
