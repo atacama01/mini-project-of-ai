@@ -1,6 +1,4 @@
-# ============================================
 # DATA PREPROCESSING - INSURANCE COST PREDICTION
-# ============================================
 
 import pandas as pd
 import numpy as np
@@ -94,15 +92,12 @@ if save_choice == 'y':
              feature_names=all_feature_names)
     print("\nPreprocessor and data saved successfully!")
 
-    # ============================================
 # FEATURE IMPORTANCE & ANALYSIS
-# ============================================
 
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.inspection import permutation_importance
-import warnings
 
 warnings.filterwarnings('ignore')
 plt.style.use('seaborn-v0_8-darkgrid')
